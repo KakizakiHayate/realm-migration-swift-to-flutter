@@ -1,6 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:realm/realm.dart';
+import 'models/user.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -11,7 +16,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Flutter Realm Migration',
       theme: ThemeData(
         // This is the theme of your application.
         //
@@ -28,10 +33,10 @@ class MyApp extends StatelessWidget {
         //
         // This works for code too, not just values: Most code changes can be
         // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'Flutter Realm Migration'),
     );
   }
 }
@@ -55,17 +60,68 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  List<User> users = [];
+  String realmPath = '';
+  bool isLoading = true;
+  String errorMessage = '';
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _checkRealmPath();
+  }
+
+  Future<void> _checkRealmPath() async {
+    try {
+      final documentsDir = await getApplicationDocumentsDirectory();
+      final path = '${documentsDir.path}/default.realm';
+
+      setState(() {
+        realmPath = path;
+      });
+
+      print("📂 Flutter Realm file path: $path");
+      await _loadRealm();
+    } catch (e) {
+      setState(() {
+        errorMessage = e.toString();
+        isLoading = false;
+      });
+      print("❌ Error: $e");
+    }
+  }
+
+  Future<void> _loadRealm() async {
+    try {
+      if (!File(realmPath).existsSync()) {
+        setState(() {
+          errorMessage = "Realm file not found at: $realmPath";
+          isLoading = false;
+        });
+        print("❌ Realm file not found at: $realmPath");
+        return;
+      }
+
+      final config = Configuration.local([User.schema], path: realmPath);
+      final realm = Realm(config);
+
+      final loadedUsers = realm.all<User>();
+
+      setState(() {
+        users = loadedUsers.toList();
+        isLoading = false;
+      });
+
+      for (var user in users) {
+        print("✅ User: ${user.name}, Age: ${user.age}");
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = e.toString();
+        isLoading = false;
+      });
+      print("❌ Error loading Realm: $e");
+    }
   }
 
   @override
@@ -86,40 +142,42 @@ class _MyHomePageState extends State<MyHomePage> {
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text('Realm Path: $realmPath',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                if (errorMessage.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text('Error: $errorMessage',
+                        style: const TextStyle(color: Colors.red)),
+                  ),
+                Expanded(
+                  child: users.isEmpty
+                      ? const Center(
+                          child: Text('No users found in Realm database'),
+                        )
+                      : ListView.builder(
+                          itemCount: users.length,
+                          itemBuilder: (context, index) {
+                            final user = users[index];
+                            return ListTile(
+                              title: Text(user.name),
+                              subtitle: Text('Age: ${user.age}'),
+                              leading: CircleAvatar(
+                                child: Text(user.name[0]),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
